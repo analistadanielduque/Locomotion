@@ -143,7 +143,7 @@ jobs:
           yacl_version=3.9.6+26.2
           modmenu_version=20.0.1
 
-          mod_version=0.1.12+26.2-port3
+          mod_version=0.1.12+26.2-port3-safe
           maven_group=com.trainguy9512
           archives_base_name=locomotion-fabric
           EOF
@@ -204,7 +204,6 @@ jobs:
               "debug.MixinDefaultPlayerSkin",
               "game.MixinLevelChunk",
               "game.MixinMinecraft",
-              "game.MixinMultiPlayerGameMode",
               "item.MixinBlocksAttacks",
               "item.MixinItemTransform",
               "item.property.MixinCrossbowPull",
@@ -368,33 +367,6 @@ jobs:
           s = s.replace('        this.minecraft.gameRenderer.getFeatureRenderDispatcher().renderAllFeatures();\n', '')
           s = s.replace('        this.minecraft.renderBuffers().bufferSource().endBatch();\n', '')
           p.write_text(s)
-
-          # Minecraft 26.2 removed MultiPlayerGameMode#interactAt and merged its hit-result path
-          # into interact(Player, Entity, EntityHitResult, InteractionHand).
-          p = Path('src/main/java/com/trainguy9512/locomotion/mixin/game/MixinMultiPlayerGameMode.java')
-          s = p.read_text()
-          first_method = s.index('    public void triggerInteractAtAnimation(')
-          block_start = s.rfind('    @Inject(', 0, first_method)
-          second_method = s.index('    public void triggerInteractAnimation(', first_method)
-          block_end = s.index('\\n    }\\n}', second_method) + len('\\n    }')
-          new = (
-          '    @Inject(\\n'
-          '            method = "interact",\\n'
-          '            at = @At("RETURN")\\n'
-          '    )\\n'
-          '    public void triggerInteractAnimation(Player player, Entity target, EntityHitResult hitResult, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {\\n'
-          '        if (cir.getReturnValue() instanceof InteractionResult.Success success) {\\n'
-          '            FirstPersonUseAnimations.triggerUseAnimation(\\n'
-          '                    hand,\\n'
-          '                    hitResult != null\\n'
-          '                            ? FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY\\n'
-          '                            : FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,\\n'
-          '                    success.swingSource()\\n'
-          '            );\\n'
-          '        }\\n'
-          '    }'
-          )
-          p.write_text(s[:block_start] + new + s[block_end:])
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
