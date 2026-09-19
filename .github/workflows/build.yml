@@ -143,7 +143,7 @@ jobs:
           yacl_version=3.9.6+26.2
           modmenu_version=20.0.1
 
-          mod_version=0.1.12+26.2-port5
+          mod_version=0.1.12+26.2-port6
           maven_group=com.trainguy9512
           archives_base_name=locomotion-fabric
           EOF
@@ -427,6 +427,30 @@ jobs:
           # Render states are reused in 26.2, so clear any stale third-person Locomotion pose.
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinEntityRenderer.java')
           p.write_text("package com.trainguy9512.locomotion.mixin.render;\n\nimport com.trainguy9512.locomotion.access.EntityRenderStateAccess;\nimport com.trainguy9512.locomotion.animation.animator.JointAnimatorDispatcher;\nimport com.trainguy9512.locomotion.animation.data.AnimationDataContainer;\nimport net.minecraft.client.renderer.entity.EntityRenderer;\nimport net.minecraft.client.renderer.entity.state.EntityRenderState;\nimport net.minecraft.world.entity.Entity;\nimport org.spongepowered.asm.mixin.Mixin;\nimport org.spongepowered.asm.mixin.injection.At;\nimport org.spongepowered.asm.mixin.injection.Inject;\nimport org.spongepowered.asm.mixin.injection.callback.CallbackInfo;\n\nimport java.util.Optional;\n\n@Mixin(EntityRenderer.class)\npublic class MixinEntityRenderer<T extends Entity, S extends EntityRenderState> {\n    @Inject(method = \"extractRenderState\", at = @At(\"HEAD\"))\n    private void locomotion$refreshPose(T entity, S reusedState, float partialTick, CallbackInfo ci) {\n        EntityRenderStateAccess access = (EntityRenderStateAccess) reusedState;\n        Optional<AnimationDataContainer> data = JointAnimatorDispatcher.getInstance().getEntityAnimationDataContainer(entity);\n        if (data.isPresent()) {\n            access.animationOverhaul$setInterpolatedAnimationPose(data.get().getInterpolatedAnimationPose(partialTick));\n        } else {\n            access.animationOverhaul$setInterpolatedAnimationPose(null);\n        }\n    }\n}\n")
+
+          # FirstPerson Model also owns the first-person camera/body transform. When it is present,
+          # keep Locomotion's pose computation and hand/item animation, but do not apply a second
+          # camera transform or cancel vanilla/FPM view bobbing.
+          p = Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinGameRenderer.java')
+          s = p.read_text()
+          if 'import net.fabricmc.loader.api.FabricLoader;' not in s:
+              s = s.replace('import net.minecraft.client.DeltaTracker;\n',
+                            'import net.minecraft.client.DeltaTracker;\nimport net.fabricmc.loader.api.FabricLoader;\n')
+          s = s.replace(
+              'private void addCameraRotation(CameraRenderState cameraState, PoseStack poseStack, CallbackInfo ci){\n'
+              '        if (LocomotionMain.CONFIG.data().firstPersonPlayer.enableRenderer) {',
+              'private void addCameraRotation(CameraRenderState cameraState, PoseStack poseStack, CallbackInfo ci){\n'
+              '        if (LocomotionMain.CONFIG.data().firstPersonPlayer.enableRenderer '
+              '&& !FabricLoader.getInstance().isModLoaded("firstperson")) {'
+          )
+          s = s.replace(
+              'private void removeViewBobbing(CameraRenderState cameraState, PoseStack poseStack, CallbackInfo ci){\n'
+              '        if (LocomotionMain.CONFIG.data().firstPersonPlayer.enableRenderer) {',
+              'private void removeViewBobbing(CameraRenderState cameraState, PoseStack poseStack, CallbackInfo ci){\n'
+              '        if (LocomotionMain.CONFIG.data().firstPersonPlayer.enableRenderer '
+              '&& !FabricLoader.getInstance().isModLoaded("firstperson")) {'
+          )
+          p.write_text(s)
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
