@@ -143,7 +143,7 @@ jobs:
           yacl_version=3.9.6+26.2
           modmenu_version=20.0.1
 
-          mod_version=0.1.12+26.2-port2
+          mod_version=0.1.12+26.2-port3
           maven_group=com.trainguy9512
           archives_base_name=locomotion-fabric
           EOF
@@ -367,6 +367,57 @@ jobs:
           s = s.replace('        this.minecraft.gameRenderer.getFeatureRenderDispatcher().renderAllFeatures();\n', '')
           s = s.replace('        this.minecraft.renderBuffers().bufferSource().endBatch();\n', '')
           p.write_text(s)
+
+          # Minecraft 26.2 removed MultiPlayerGameMode#interactAt and merged its hit-result path
+          # into interact(Player, Entity, EntityHitResult, InteractionHand). Preserve both Locomotion
+          # animation semantics using the single 26.2 method.
+          p = Path('src/main/java/com/trainguy9512/locomotion/mixin/game/MixinMultiPlayerGameMode.java')
+          s = p.read_text()
+          old = '''    @Inject(
+            method = "interactAt",
+            at = @At("RETURN")
+    )
+    public void triggerInteractAtAnimation(Player player, Entity target, EntityHitResult ray, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
+        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
+            FirstPersonUseAnimations.triggerUseAnimation(
+                    hand,
+                    FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY,
+                    success.swingSource()
+            );
+        }
+    }
+
+    @Inject(
+            method = "interact",
+            at = @At("RETURN")
+    )
+    public void triggerInteractAnimation(Player player, Entity target, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
+        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
+            FirstPersonUseAnimations.triggerUseAnimation(
+                    hand,
+                    FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,
+                    success.swingSource()
+            );
+        }
+    }'''
+          new = '''    @Inject(
+            method = "interact",
+            at = @At("RETURN")
+    )
+    public void triggerInteractAnimation(Player player, Entity target, EntityHitResult hitResult, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
+        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
+            FirstPersonUseAnimations.triggerUseAnimation(
+                    hand,
+                    hitResult != null
+                            ? FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY
+                            : FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,
+                    success.swingSource()
+            );
+        }
+    }'''
+          if old not in s:
+              raise RuntimeError('Expected MultiPlayerGameMode interaction block was not found')
+          p.write_text(s.replace(old, new))
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
