@@ -284,6 +284,14 @@ jobs:
 
           # Debug overlay API was rewritten in 26.2 and is unrelated to Locomotion's runtime animations.
           Path('src/main/java/com/trainguy9512/locomotion/debug/DebugEntryFirstPersonDrivers.java').unlink(missing_ok=True)
+          Path('src/main/java/com/trainguy9512/locomotion/debug/LocomotionDebugScreenEntries.java').unlink(missing_ok=True)
+          p = Path('src/main/java/com/trainguy9512/locomotion/LocomotionFabric.java')
+          s = p.read_text()
+          s = s.replace('import com.trainguy9512.locomotion.debug.DebugEntryFirstPersonDrivers;\n', '')
+          s = s.replace('import com.trainguy9512.locomotion.debug.LocomotionDebugScreenEntries;\n', '')
+          s = s.replace('import net.fabricmc.fabric.api.client.debug.v1.DebugScreenEntries;\n', '')
+          s = s.replace('        LocomotionDebugScreenEntries.register(DebugScreenEntries::register);\n', '')
+          p.write_text(s)
 
           # BlockRenderDispatcher no longer exists in 26.2. The mixin implemented optional animated
           # held-block rendering which is currently disabled upstream, so do not ship the dead hook.
