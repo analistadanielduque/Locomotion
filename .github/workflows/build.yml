@@ -22,12 +22,28 @@ jobs:
           distribution: temurin
           java-version: '25'
 
+      - name: Set up Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
       - name: Fetch upstream Locomotion
         shell: bash
         run: |
           git clone https://github.com/Trainguy9512/locomotion.git work
           cd work
           git checkout d1cab66e949dcfcd98481bc31eb42111edeeceac
+
+      - name: Apply deterministic 1.21.11 to 26.2 symbol migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y modforge bridge --from 1.21.11 --to 26.2 --namespace source work/src/main/java --apply --out work/modforge-common.md
+          npx -y modforge bridge --from 1.21.11 --to 26.2 --namespace source work/fabric/src/main/java --apply --out work/modforge-fabric.md
+          echo "===== ModForge common summary ====="
+          tail -n 20 work/modforge-common.md || true
+          echo "===== ModForge fabric summary ====="
+          tail -n 20 work/modforge-fabric.md || true
 
       - name: Convert upstream project to Fabric 26.2 workspace
         shell: bash
