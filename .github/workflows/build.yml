@@ -382,9 +382,7 @@ jobs:
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinItemInHandRenderer.java')
           p.write_text("package com.trainguy9512.locomotion.mixin.render;\n\nimport com.mojang.blaze3d.vertex.PoseStack;\nimport com.trainguy9512.locomotion.LocomotionMain;\nimport com.trainguy9512.locomotion.access.FirstPersonPlayerRendererGetter;\nimport com.trainguy9512.locomotion.animation.animator.JointAnimatorDispatcher;\nimport com.trainguy9512.locomotion.render.FirstPersonPlayerRenderer;\nimport net.minecraft.client.Minecraft;\nimport net.minecraft.client.player.LocalPlayer;\nimport net.minecraft.client.renderer.ItemInHandRenderer;\nimport net.minecraft.client.renderer.SubmitNodeCollector;\nimport net.minecraft.world.InteractionHand;\nimport org.spongepowered.asm.mixin.Final;\nimport org.spongepowered.asm.mixin.Mixin;\nimport org.spongepowered.asm.mixin.Shadow;\nimport org.spongepowered.asm.mixin.injection.At;\nimport org.spongepowered.asm.mixin.injection.Inject;\nimport org.spongepowered.asm.mixin.injection.callback.CallbackInfo;\n\n@Mixin(ItemInHandRenderer.class)\npublic class MixinItemInHandRenderer {\n    @Shadow @Final private Minecraft minecraft;\n\n    @Inject(method = \"submitHandsWithItems\", at = @At(\"HEAD\"), cancellable = true)\n    private void locomotion$submitOnlyLocomotionHands(\n            float partialTick, PoseStack poseStack, SubmitNodeCollector nodeCollector,\n            LocalPlayer player, int packedLight, CallbackInfo ci\n    ) {\n        if (!LocomotionMain.CONFIG.data().firstPersonPlayer.enableRenderer) {\n            return;\n        }\n\n        JointAnimatorDispatcher dispatcher = JointAnimatorDispatcher.getInstance();\n        if (dispatcher.getFirstPersonPlayerDataContainer().isEmpty()\n                || dispatcher.getInterpolatedFirstPersonPlayerPose().isEmpty()) {\n            return;\n        }\n\n        FirstPersonPlayerRendererGetter getter =\n                (FirstPersonPlayerRendererGetter) this.minecraft.getEntityRenderDispatcher();\n        if (getter.locomotion$getFirstPersonPlayerRenderer().isEmpty()) {\n            return;\n        }\n\n        FirstPersonPlayerRenderer renderer = getter.locomotion$getFirstPersonPlayerRenderer().get();\n        renderer.renderLocomotionArmWithItem(partialTick, poseStack, nodeCollector, player, packedLight, InteractionHand.OFF_HAND);\n        renderer.renderLocomotionArmWithItem(partialTick, poseStack, nodeCollector, player, packedLight, InteractionHand.MAIN_HAND);\n        ci.cancel();\n    }\n}\n")
 
-          # 26.2 defers model rendering. Locomotion must not reuse AvatarRenderer's PlayerModel
-          # for first-person submissions because the queued first- and third-person renders mutate the
-          # same ModelPart objects and contaminate each other's poses. Give first person dedicated models.
+          # Minecraft 26.2 defers model rendering, so first person must not share AvatarRenderer's model.
           p = Path('src/main/java/com/trainguy9512/locomotion/render/FirstPersonPlayerRenderer.java')
           s = p.read_text()
           if 'import net.minecraft.client.model.geom.ModelLayers;' not in s:
@@ -419,61 +417,16 @@ jobs:
               '                            PlayerModel playerModel = playerRenderer.getModel();',
               '                            PlayerModel playerModel = this.locomotion$getFirstPersonPlayerModel(player);'
           )
-          old_get_model = '''    @Override
-    public @NotNull PlayerModel getModel() {
-        assert minecraft.player != null;
-        return entityRenderDispatcher.getPlayerRenderer(minecraft.player).getModel();
-    }
-}'''
-          new_get_model = '''    private PlayerModel locomotion$getFirstPersonPlayerModel(AbstractClientPlayer player) {
-        return player.getSkin().model() == PlayerModelType.SLIM
-                ? this.locomotion$slimFirstPersonModel
-                : this.locomotion$wideFirstPersonModel;
-    }
-
-    @Override
-    public @NotNull PlayerModel getModel() {
-        assert minecraft.player != null;
-        return this.locomotion$getFirstPersonPlayerModel(minecraft.player);
-    }
-}'''
+          old_get_model = "    @Override\n    public @NotNull PlayerModel getModel() {\n        assert minecraft.player != null;\n        return entityRenderDispatcher.getPlayerRenderer(minecraft.player).getModel();\n    }\n}"
+          new_get_model = "    private PlayerModel locomotion$getFirstPersonPlayerModel(AbstractClientPlayer player) {\n        return player.getSkin().model() == PlayerModelType.SLIM\n                ? this.locomotion$slimFirstPersonModel\n                : this.locomotion$wideFirstPersonModel;\n    }\n\n    @Override\n    public @NotNull PlayerModel getModel() {\n        assert minecraft.player != null;\n        return this.locomotion$getFirstPersonPlayerModel(minecraft.player);\n    }\n}"
           if old_get_model not in s:
               raise RuntimeError('FirstPersonPlayerRenderer getModel block not found')
           s = s.replace(old_get_model, new_get_model)
           p.write_text(s)
 
-          # Render states are reused by Minecraft 26.2. Explicitly clear Locomotion's pose whenever
-          # an entity has no registered third-person animator, otherwise a stale pose can freeze vanilla animation.
+          # Render states are reused in 26.2, so clear any stale third-person Locomotion pose.
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinEntityRenderer.java')
-          p.write_text('''package com.trainguy9512.locomotion.mixin.render;
-
-import com.trainguy9512.locomotion.access.EntityRenderStateAccess;
-import com.trainguy9512.locomotion.animation.animator.JointAnimatorDispatcher;
-import com.trainguy9512.locomotion.animation.data.AnimationDataContainer;
-import net.minecraft.client.renderer.entity.EntityRenderer;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
-import net.minecraft.world.entity.Entity;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-import java.util.Optional;
-
-@Mixin(EntityRenderer.class)
-public class MixinEntityRenderer<T extends Entity, S extends EntityRenderState> {
-    @Inject(method = "extractRenderState", at = @At("HEAD"))
-    private void locomotion$refreshPose(T entity, S reusedState, float partialTick, CallbackInfo ci) {
-        EntityRenderStateAccess access = (EntityRenderStateAccess) reusedState;
-        Optional<AnimationDataContainer> data = JointAnimatorDispatcher.getInstance().getEntityAnimationDataContainer(entity);
-        if (data.isPresent()) {
-            access.animationOverhaul$setInterpolatedAnimationPose(data.get().getInterpolatedAnimationPose(partialTick));
-        } else {
-            access.animationOverhaul$setInterpolatedAnimationPose(null);
-        }
-    }
-}
-''')
+          p.write_text("package com.trainguy9512.locomotion.mixin.render;\n\nimport com.trainguy9512.locomotion.access.EntityRenderStateAccess;\nimport com.trainguy9512.locomotion.animation.animator.JointAnimatorDispatcher;\nimport com.trainguy9512.locomotion.animation.data.AnimationDataContainer;\nimport net.minecraft.client.renderer.entity.EntityRenderer;\nimport net.minecraft.client.renderer.entity.state.EntityRenderState;\nimport net.minecraft.world.entity.Entity;\nimport org.spongepowered.asm.mixin.Mixin;\nimport org.spongepowered.asm.mixin.injection.At;\nimport org.spongepowered.asm.mixin.injection.Inject;\nimport org.spongepowered.asm.mixin.injection.callback.CallbackInfo;\n\nimport java.util.Optional;\n\n@Mixin(EntityRenderer.class)\npublic class MixinEntityRenderer<T extends Entity, S extends EntityRenderState> {\n    @Inject(method = \"extractRenderState\", at = @At(\"HEAD\"))\n    private void locomotion$refreshPose(T entity, S reusedState, float partialTick, CallbackInfo ci) {\n        EntityRenderStateAccess access = (EntityRenderStateAccess) reusedState;\n        Optional<AnimationDataContainer> data = JointAnimatorDispatcher.getInstance().getEntityAnimationDataContainer(entity);\n        if (data.isPresent()) {\n            access.animationOverhaul$setInterpolatedAnimationPose(data.get().getInterpolatedAnimationPose(partialTick));\n        } else {\n            access.animationOverhaul$setInterpolatedAnimationPose(null);\n        }\n    }\n}\n")
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
