@@ -373,7 +373,9 @@ jobs:
           # into interact(Player, Entity, EntityHitResult, InteractionHand).
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/game/MixinMultiPlayerGameMode.java')
           s = p.read_text()
-          pattern = re.compile(r'    @Inject\\(\\n            method = "interactAt",.*?    public void triggerInteractAnimation\\(Player player, Entity target, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir\\) \\{.*?\\n    \\}', re.S)
+          block_start = s.index('    @Inject(\\n            method = "interactAt",')
+          second_start = s.index('    @Inject(\\n            method = "interact",', block_start)
+          block_end = s.index('\\n    }\\n}', second_start) + len('\\n    }')
           new = (
           '    @Inject(\\n'
           '            method = "interact",\\n'
@@ -391,10 +393,7 @@ jobs:
           '        }\\n'
           '    }'
           )
-          s2, count = pattern.subn(new, s, count=1)
-          if count != 1:
-              raise RuntimeError(f'Expected one MultiPlayerGameMode interaction block, found {count}')
-          p.write_text(s2)
+          p.write_text(s[:block_start] + new + s[block_end:])
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
