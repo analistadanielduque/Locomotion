@@ -211,7 +211,6 @@ jobs:
               "item.property.MixinIsUsingItem",
               "item.property.MixinUseCycle",
               "item.property.MixinUseDuration",
-              "render.MixinBlockRenderDispatcher",
               "render.MixinEntityRenderDispatcher",
               "render.MixinEntityRenderer",
               "render.MixinEntityRenderState",
@@ -272,6 +271,113 @@ jobs:
           s = s.replace('method = "renderModel"', 'method = "prepareModel"')
           s = s.replace('@Local(argsOnly = true) SubmitNodeStorage.ModelSubmit<S> modelSubmit',
                         '@Local(argsOnly = true) ModelFeatureRenderer.Submit<S> modelSubmit')
+          p.write_text(s)
+
+          # 26.2 moved camera state into renderer.state.level.
+          for p in Path('src/main/java').rglob('*.java'):
+              s = p.read_text()
+              s = s.replace('net.minecraft.client.renderer.state.CameraRenderState',
+                            'net.minecraft.client.renderer.state.level.CameraRenderState')
+              s = s.replace('Lnet/minecraft/client/renderer/state/CameraRenderState;',
+                            'Lnet/minecraft/client/renderer/state/level/CameraRenderState;')
+              p.write_text(s)
+
+          # Debug overlay API was rewritten in 26.2 and is unrelated to Locomotion's runtime animations.
+          Path('src/main/java/com/trainguy9512/locomotion/debug/DebugEntryFirstPersonDrivers.java').unlink(missing_ok=True)
+
+          # BlockRenderDispatcher no longer exists in 26.2. The mixin implemented optional animated
+          # held-block rendering which is currently disabled upstream, so do not ship the dead hook.
+          Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinBlockRenderDispatcher.java').unlink(missing_ok=True)
+
+          # ItemTransform was moved to client.resources.model.cuboid.
+          p = Path('src/main/java/com/trainguy9512/locomotion/mixin/item/MixinItemTransform.java')
+          s = p.read_text().replace(
+              'net.minecraft.client.renderer.block.model.ItemTransform',
+              'net.minecraft.client.resources.model.cuboid.ItemTransform'
+          )
+          p.write_text(s)
+
+          # Minecraft 26.2 split registry objects into EntityTypes and BlockEntityTypes.
+          p = Path('src/main/java/com/trainguy9512/locomotion/LocomotionMain.java')
+          s = p.read_text()
+          s = s.replace('import net.minecraft.world.entity.EntityType;\\n',
+                        'import net.minecraft.world.entity.EntityTypes;\\n')
+          s = s.replace('import net.minecraft.world.level.block.entity.BlockEntityType;\\n',
+                        'import net.minecraft.world.level.block.entity.BlockEntityTypes;\\n')
+          s = s.replace('EntityType.PLAYER', 'EntityTypes.PLAYER')
+          s = s.replace('BlockEntityType.CHEST', 'BlockEntityTypes.CHEST')
+          s = s.replace('BlockEntityType.ENDER_CHEST', 'BlockEntityTypes.ENDER_CHEST')
+          s = s.replace('BlockEntityType.TRAPPED_CHEST', 'BlockEntityTypes.TRAPPED_CHEST')
+          s = s.replace('BlockEntityType.SHULKER_BOX', 'BlockEntityTypes.SHULKER_BOX')
+          p.write_text(s)
+
+          p = Path('src/main/java/com/trainguy9512/locomotion/animation/animator/entity/firstperson/FirstPersonDrivers.java')
+          s = p.read_text()
+          s = s.replace('import net.minecraft.world.entity.EntityType;\\n',
+                        'import net.minecraft.world.entity.EntityType;\\nimport net.minecraft.world.entity.EntityTypes;\\n')
+          s = s.replace('EntityType.COW', 'EntityTypes.COW')
+          p.write_text(s)
+
+          # BlockEntityType#getKey was removed; query the built-in registry instead.
+          for rel in [
+              'src/main/java/com/trainguy9512/locomotion/animation/animator/JointAnimatorDispatcher.java',
+              'src/main/java/com/trainguy9512/locomotion/config/LocomotionConfigScreen.java'
+          ]:
+              p = Path(rel)
+              s = p.read_text()
+              if 'net.minecraft.core.registries.BuiltInRegistries' not in s:
+                  idx = s.find('import ')
+                  s = s[:idx] + 'import net.minecraft.core.registries.BuiltInRegistries;\\n' + s[idx:]
+              s = s.replace('BlockEntityType.getKey(', 'BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(')
+              p.write_text(s)
+
+          # Tuple was removed from Minecraft 26.2. Keep the exact Locomotion API via a tiny local tuple.
+          tuple_path = Path('src/main/java/com/trainguy9512/locomotion/animation/util/Tuple.java')
+          tuple_path.write_text('''package com.trainguy9512.locomotion.animation.util;\n\npublic record Tuple<A, B>(A a, B b) {\n    public A getA() { return a; }\n    public B getB() { return b; }\n}\n''')
+          for rel in [
+              'src/main/java/com/trainguy9512/locomotion/animation/pose/function/AnimationPlayer.java',
+              'src/main/java/com/trainguy9512/locomotion/animation/pose/function/SequencePlayerFunction.java',
+              'src/main/java/com/trainguy9512/locomotion/animation/pose/function/statemachine/StateTransition.java'
+          ]:
+              p = Path(rel)
+              s = p.read_text().replace('import net.minecraft.util.Tuple;',
+                                        'import com.trainguy9512.locomotion.animation.util.Tuple;')
+              p.write_text(s)
+
+          # These renderer fields were already unused upstream. Their backing vanilla APIs were removed.
+          p = Path('src/main/java/com/trainguy9512/locomotion/render/FirstPersonPlayerRenderer.java')
+          s = p.read_text()
+          s = s.replace('import net.minecraft.client.renderer.block.BlockRenderDispatcher;\\n', '')
+          s = s.replace('    private final ItemRenderer itemRenderer;\\n', '')
+          s = s.replace('    private final BlockRenderDispatcher blockRenderer;\\n', '')
+          s = s.replace('        this.itemRenderer = minecraft.getItemRenderer();\\n', '')
+          s = s.replace('        this.blockRenderer = context.getBlockRenderDispatcher();\\n', '')
+          s = s.replace('        this.minecraft.gameRenderer.getFeatureRenderDispatcher().renderAllFeatures();\\n', '')
+          s = s.replace('        this.minecraft.renderBuffers().bufferSource().endBatch();\\n', '')
+          p.write_text(s)
+
+          # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
+          p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
+          s = p.read_text().replace('Minecraft.getInstance().setScreen(parent)',
+                                    'Minecraft.getInstance().setScreenAndShow(parent)')
+          p.write_text(s)
+
+          # screen moved to Gui in 26.2. Until an accessor is needed, disable this cosmetic transition
+          # signal rather than depending on a private GUI field.
+          p = Path('src/main/java/com/trainguy9512/locomotion/animation/animator/entity/firstperson/FirstPersonJointAnimator.java')
+          s = p.read_text().replace(
+              'driverContainer.getDriver(FirstPersonDrivers.HAS_SCREEN_OPEN).setValue(Minecraft.getInstance().screen != null);',
+              'driverContainer.getDriver(FirstPersonDrivers.HAS_SCREEN_OPEN).setValue(false);'
+          )
+          p.write_text(s)
+
+          # COPPER_CHESTS and DOORS item tag constants were removed. Copper chests are optional pose
+          # overrides and door posing is currently commented out upstream, so remove only those stale references.
+          p = Path('src/main/java/com/trainguy9512/locomotion/animation/animator/entity/firstperson/handpose/FirstPersonGenericItems.java')
+          s = p.read_text()
+          s = s.replace('            ItemTags.COPPER_CHESTS,\\n', '')
+          s = s.replace('        return itemStack.is(ItemTags.DOORS);',
+                        '        return itemStack.getItem() instanceof BlockItem;')
           p.write_text(s)
           PY
 
