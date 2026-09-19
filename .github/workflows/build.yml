@@ -143,7 +143,7 @@ jobs:
           yacl_version=3.9.6+26.2
           modmenu_version=20.0.1
 
-          mod_version=0.1.12+26.2-port
+          mod_version=0.1.12+26.2-port2
           maven_group=com.trainguy9512
           archives_base_name=locomotion-fabric
           EOF
@@ -219,9 +219,7 @@ jobs:
               "render.MixinItemInHandRenderer",
               "render.MixinLivingEntityRenderer",
               "render.MixinModelFeatureRenderer",
-              "render.MixinModelPart",
-              "render.block_entity.MixinChestRenderer",
-              "render.block_entity.MixinShulkerBoxRenderer"
+              "render.MixinModelPart"
             ],
             "injectors": {"defaultRequire": 1}
           }
@@ -296,6 +294,12 @@ jobs:
           # BlockRenderDispatcher no longer exists in 26.2. The mixin implemented optional animated
           # held-block rendering which is currently disabled upstream, so do not ship the dead hook.
           Path('src/main/java/com/trainguy9512/locomotion/mixin/render/MixinBlockRenderDispatcher.java').unlink(missing_ok=True)
+
+          # Minecraft 26.2 changed the block-entity submit pipeline. The old chest/shulker WrapOperation
+          # targets no longer exist and hard-fail resource reload. Disable only those two hooks so the
+          # player animation system remains active while block-entity animation support is deferred.
+          Path('src/main/java/com/trainguy9512/locomotion/mixin/render/block_entity/MixinChestRenderer.java').unlink(missing_ok=True)
+          Path('src/main/java/com/trainguy9512/locomotion/mixin/render/block_entity/MixinShulkerBoxRenderer.java').unlink(missing_ok=True)
 
           # ItemTransform was moved to client.resources.model.cuboid.
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/item/MixinItemTransform.java')
