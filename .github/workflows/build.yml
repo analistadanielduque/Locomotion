@@ -239,6 +239,7 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('src/main/java/com/trainguy9512/locomotion/LocomotionFabric.java')
           s = p.read_text()
@@ -369,55 +370,31 @@ jobs:
           p.write_text(s)
 
           # Minecraft 26.2 removed MultiPlayerGameMode#interactAt and merged its hit-result path
-          # into interact(Player, Entity, EntityHitResult, InteractionHand). Preserve both Locomotion
-          # animation semantics using the single 26.2 method.
+          # into interact(Player, Entity, EntityHitResult, InteractionHand).
           p = Path('src/main/java/com/trainguy9512/locomotion/mixin/game/MixinMultiPlayerGameMode.java')
           s = p.read_text()
-          old = '''    @Inject(
-            method = "interactAt",
-            at = @At("RETURN")
-    )
-    public void triggerInteractAtAnimation(Player player, Entity target, EntityHitResult ray, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
-            FirstPersonUseAnimations.triggerUseAnimation(
-                    hand,
-                    FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY,
-                    success.swingSource()
-            );
-        }
-    }
-
-    @Inject(
-            method = "interact",
-            at = @At("RETURN")
-    )
-    public void triggerInteractAnimation(Player player, Entity target, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
-            FirstPersonUseAnimations.triggerUseAnimation(
-                    hand,
-                    FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,
-                    success.swingSource()
-            );
-        }
-    }'''
-          new = '''    @Inject(
-            method = "interact",
-            at = @At("RETURN")
-    )
-    public void triggerInteractAnimation(Player player, Entity target, EntityHitResult hitResult, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (cir.getReturnValue() instanceof InteractionResult.Success success) {
-            FirstPersonUseAnimations.triggerUseAnimation(
-                    hand,
-                    hitResult != null
-                            ? FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY
-                            : FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,
-                    success.swingSource()
-            );
-        }
-    }'''
-          if old not in s:
-              raise RuntimeError('Expected MultiPlayerGameMode interaction block was not found')
-          p.write_text(s.replace(old, new))
+          pattern = re.compile(r'    @Inject\\(\\n            method = "interactAt",.*?    public void triggerInteractAnimation\\(Player player, Entity target, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir\\) \\{.*?\\n    \\}', re.S)
+          new = (
+          '    @Inject(\\n'
+          '            method = "interact",\\n'
+          '            at = @At("RETURN")\\n'
+          '    )\\n'
+          '    public void triggerInteractAnimation(Player player, Entity target, EntityHitResult hitResult, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {\\n'
+          '        if (cir.getReturnValue() instanceof InteractionResult.Success success) {\\n'
+          '            FirstPersonUseAnimations.triggerUseAnimation(\\n'
+          '                    hand,\\n'
+          '                    hitResult != null\\n'
+          '                            ? FirstPersonUseAnimations.UseAnimationType.INTERACT_AT_ENTITY\\n'
+          '                            : FirstPersonUseAnimations.UseAnimationType.INTERACT_ENTITY,\\n'
+          '                    success.swingSource()\\n'
+          '            );\\n'
+          '        }\\n'
+          '    }'
+          )
+          s2, count = pattern.subn(new, s, count=1)
+          if count != 1:
+              raise RuntimeError(f'Expected one MultiPlayerGameMode interaction block, found {count}')
+          p.write_text(s2)
 
           # setScreen moved to Gui. Minecraft exposes setScreenAndShow for callers.
           p = Path('src/main/java/com/trainguy9512/locomotion/config/LocomotionConfig.java')
